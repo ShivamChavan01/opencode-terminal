@@ -6,11 +6,11 @@
   "main": "src/index.ts",
   "files": ["src"],
   "keywords": ["opencode", "opencode-plugin", "terminal"],
-  "author": "",
+  "author": "ShivamChavan01",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/ShivamChavan01/terminal-.git"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
