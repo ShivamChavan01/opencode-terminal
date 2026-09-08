@@ -193,6 +193,113 @@ async function findNewWindow(before: Set<string>, timeoutMs = 5000): Promise<str
   return ""
 }
 
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    return await Bun.file(p).exists()
+  } catch {
+    return false
+  }
+}
+
+async function readTextSafe(p: string, max = 30000): Promise<string> {
+  try {
+    const f: any = Bun.file(p)
+    if (!(await f.exists())) return ""
+    const t = await f.text()
+    return typeof t === "string" ? t.slice(0, max) : ""
+  } catch {
+    return ""
+  }
+}
+
+interface DetectedCommand {
+  command: string
+  title: string
+  reason: string
+}
+
+function joinPath(cwd: string, name: string): string {
+  return cwd.endsWith("/") ? cwd + name : cwd + "/" + name
+}
+
+async function detectRunCommand(cwd: string): Promise<DetectedCommand | null> {
+  const has = (n: string) => pathExists(joinPath(cwd, n))
+  const read = (n: string, max?: number) => readTextSafe(joinPath(cwd, n), max)
+
+  // Node / Bun / Deno-style JS projects
+  if (await has("package.json")) {
+    let pkg: any = {}
+    try {
+      pkg = JSON.parse((await read("package.json", 50000)) || "{}")
+    } catch {}
+    const scripts = pkg.scripts ?? {}
+    let pm = "npm"
+    if (await has("pnpm-lock.yaml")) pm = "pnpm"
+    else if (await has("yarn.lock")) pm = "yarn"
+    else if (await has("bun.lockb") || await has("bun.lock")) pm = "bun"
+    const run = (s: string) => (pm === "npm" ? `npm run ${s}` : pm === "yarn" ? `yarn ${s}` : `${pm} run ${s}`)
+    if (scripts.dev) return { command: run("dev"), title: "dev-server", reason: `package.json scripts.dev via ${pm}` }
+    if (scripts.start) return { command: pm === "npm" && scripts.start ? "npm start" : run("start"), title: "dev-server", reason: `package.json scripts.start via ${pm}` }
+    if (await has("angular.json")) return { command: run("start"), title: "frontend", reason: "angular.json detected" }
+    if (await has("next.config.js") || (await has("next.config.mjs")) || (await has("next.config.ts"))) return { command: run("dev"), title: "frontend", reason: "Next.js detected" }
+    if (await has("vite.config.js") || (await has("vite.config.ts"))) return { command: run("dev"), title: "frontend", reason: "Vite detected" }
+    if (scripts.build) return { command: run("build"), title: "build", reason: `package.json scripts.build via ${pm}` }
+    return { command: pm === "yarn" ? "yarn install && yarn start" : `${pm} install && ${run("start")}`, title: "app", reason: "package.json with no dev/start script" }
+  }
+  if (await has("deno.json") || (await has("deno.jsonc"))) {
+    return { command: "deno task dev", title: "dev-server", reason: "deno.json detected" }
+  }
+
+  // Java: Maven / Gradle (Spring Boot vs Micronaut)
+  const hasMvnw = await has("mvnw")
+  const hasPom = await has("pom.xml")
+  if (hasMvnw || hasPom) {
+    const pom = hasPom ? await read("pom.xml", 50000) : ""
+    const wrapper = hasMvnw ? "./mvnw" : "mvn"
+    if (pom.includes("micronaut")) return { command: `${wrapper} mn:run`, title: "backend", reason: "Micronaut pom.xml" }
+    if (pom.includes("spring-boot") || pom.includes("springframework")) return { command: `${wrapper} spring-boot:run`, title: "backend", reason: "Spring Boot pom.xml" }
+    return { command: `${wrapper} compile exec:java`, title: "backend", reason: "Maven pom.xml" }
+  }
+  const hasGradlew = await has("gradlew")
+  const hasGradle = (await has("build.gradle")) || (await has("build.gradle.kts"))
+  if (hasGradlew || hasGradle) {
+    const gradleText = (await read("build.gradle", 30000)) + (await read("build.gradle.kts", 30000)) + (await read("settings.gradle", 10000))
+    const wrapper = hasGradlew ? "./gradlew" : "gradle"
+    if (gradleText.includes("org.springframework.boot")) return { command: `${wrapper} bootRun`, title: "backend", reason: "Spring Boot Gradle" }
+    return { command: `${wrapper} run`, title: "backend", reason: "Gradle detected" }
+  }
+
+  // Python
+  if (await has("manage.py")) return { command: "python manage.py runserver", title: "backend", reason: "Django manage.py" }
+  if (await has("pyproject.toml") || (await has("requirements.txt"))) {
+    const reqs = (await read("requirements.txt", 20000)) + (await read("pyproject.toml", 30000))
+    if (reqs.includes("fastapi") || reqs.includes("uvicorn")) {
+      if (await has("app.py")) return { command: "uvicorn app:app --reload", title: "backend", reason: "FastAPI detected" }
+      if (await has("main.py")) return { command: "uvicorn main:app --reload", title: "backend", reason: "FastAPI detected" }
+      return { command: "uvicorn app:app --reload", title: "backend", reason: "FastAPI dependency detected" }
+    }
+    if (reqs.includes("flask")) return { command: "flask run", title: "backend", reason: "Flask detected" }
+    if (await has("app.py")) return { command: "python app.py", title: "backend", reason: "app.py detected" }
+    if (await has("main.py")) return { command: "python main.py", title: "backend", reason: "main.py detected" }
+    return { command: "python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt", title: "backend", reason: "Python requirements detected" }
+  }
+
+  // Go / Rust / Ruby / PHP
+  if (await has("go.mod")) return { command: "go run .", title: "backend", reason: "go.mod detected" }
+  if (await has("Cargo.toml")) return { command: "cargo run", title: "backend", reason: "Cargo.toml detected" }
+  if (await has("Gemfile")) {
+    if (await has("config.ru")) return { command: "bundle exec rails server", title: "backend", reason: "Rails detected" }
+    return { command: "bundle exec ruby app.rb", title: "backend", reason: "Gemfile detected" }
+  }
+  if (await has("artisan")) return { command: "php artisan serve", title: "backend", reason: "Laravel artisan detected" }
+  if (await has("composer.json")) return { command: "php -S localhost:8000", title: "backend", reason: "PHP composer.json detected" }
+
+  // Static / docs fallback
+  if (await has("index.html")) return { command: "python3 -m http.server 8000", title: "static", reason: "index.html detected" }
+
+  return null
+}
+
 export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
   const sessions = new Map<string, Session>()
   let counter = 0
@@ -326,16 +433,20 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
     tool: {
       open_terminal: tool({
         description:
-          "Open a native OS terminal window in the project directory. Supports macOS Terminal/iTerm/Ghostty/WezTerm/Kitty/Alacritty, Windows Terminal/cmd, Linux gnome-terminal/konsole/wezterm/alacritty/kitty/ghostty/xterm. Pass command to run it inside; pass visibleTyping=true (Linux/X11) to visibly type the command via xdotool so the user sees keystrokes.",
+          "Open a native OS terminal window in the project directory. If command is omitted, auto-detects the run command (package.json dev/start, mvnw/gradle bootRun, Django/Flask/FastAPI, go run, cargo run, etc). Supports macOS/Windows/Linux terminals. Pass visibleTyping=true (Linux/X11 via xdotool) to visibly type the command.",
         args: {
           command: tool.schema
             .string()
             .optional()
-            .describe("Optional command to run in the new terminal"),
+            .describe("Command to run. Omit to auto-detect from project files (package.json, pom.xml, go.mod, etc)"),
           title: tool.schema
             .string()
             .optional()
-            .describe("Window title (e.g. backend-micronaut)"),
+            .describe("Window title (e.g. dev-server, backend, frontend). Defaults to auto-detected title."),
+          cwd: tool.schema
+            .string()
+            .optional()
+            .describe("Working directory (defaults to project directory)"),
           visibleTyping: tool.schema
             .boolean()
             .optional()
@@ -348,9 +459,18 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
             .describe("Ms per character for visible typing (default 80, clamped 0-500)"),
         },
         async execute(args, context) {
-          const cwd = resolveCwd(context)
-          const cmd = args.command?.trim() ?? ""
-          const title = (args as any).title?.trim() ?? ""
+          const cwd = resolveCwd(context, (args as any).cwd)
+          let cmd = args.command?.trim() ?? ""
+          let title = (args as any).title?.trim() ?? ""
+          let autoNote = ""
+          if (!cmd) {
+            const detected = await detectRunCommand(cwd)
+            if (detected) {
+              cmd = detected.command
+              if (!title) title = detected.title
+              autoNote = ` [auto-detected: ${detected.reason}]`
+            }
+          }
           const visibleTyping = (args as any).visibleTyping ?? false
           const rawDelay = Number((args as any).typeDelay ?? 80)
           const typeDelay = Math.max(0, Math.min(500, isNaN(rawDelay) ? 80 : rawDelay))
@@ -360,7 +480,7 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
               if (cmd) {
                 const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
                 await $`sh -c ${`osascript -e 'tell application "Terminal" to do script "cd \\"${esc(cwd)}\\" && ${esc(cmd)}"' -e 'tell application "Terminal" to activate' 2>/dev/null || open -a Terminal "${cwd}" || open -a iTerm "${cwd}" || open -a Ghostty "${cwd}" || open -a WezTerm "${cwd}" || open -a Kitty "${cwd}" || open -a Alacritty "${cwd}"`}`
-                return `Terminal opened in ${cwd}. Running: ${cmd}`
+                return `Terminal opened in ${cwd}. Running: ${cmd}${autoNote}`
               }
               await $`sh -c ${`open -a Terminal "${cwd}" || open -a iTerm "${cwd}" || open -a Ghostty "${cwd}" || open -a WezTerm "${cwd}" || open -a Kitty "${cwd}" || open -a Alacritty "${cwd}"`}`
               return `Terminal opened in ${cwd}`
@@ -372,7 +492,7 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
               } else {
                 await $`cmd /c ${`wt -d "${cwd}" --title "${wtTitle}" || start cmd /k "cd /d ${cwd}"`}`
               }
-              return `Terminal "${winTitle}" opened in ${cwd}`
+              return `Terminal "${winTitle}" opened in ${cwd}${cmd ? `. Running: ${cmd}${autoNote}` : ""}`
             } else {
               const trackWindow = (windowId: string) => {
                 if (!windowId) return ""
@@ -391,7 +511,7 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
                 const winId = await openVisibleTyping($, cwd, cmd, winTitle, typeDelay)
                 if (winId) {
                   const ref = trackWindow(winId)
-                  return `Terminal "${winTitle}" (${winId}) opened in ${cwd} with visible typing: ${cmd} (ref=${ref})`
+                  return `Terminal "${winTitle}" (${winId}) opened in ${cwd} with visible typing: ${cmd}${autoNote} (ref=${ref})`
                 }
               }
               const before = new Set(wmWindowIds())
@@ -417,12 +537,28 @@ export const TerminalPlugin: Plugin = async ({ directory, $ }) => {
                 ? ` (ref=${ref}, window=${winId})`
                 : " (window not tracked - close it manually)"
               return cmd
-                ? `Terminal "${winTitle}" opened in ${cwd}. Running: ${cmd}${tag}`
+                ? `Terminal "${winTitle}" opened in ${cwd}. Running: ${cmd}${autoNote}${tag}`
                 : `Terminal "${winTitle}" opened in ${cwd}${tag}`
             }
           } catch (e) {
             throw new Error(`Failed to open terminal: ${e}`)
           }
+        },
+      }),
+
+      terminal_detect: tool({
+        description:
+          "Detect the dev/run command for a directory (package.json dev/start, Maven/Gradle, Django/Flask/FastAPI, Go, Rust, etc). Returns {command, title, reason} or null.",
+        args: {
+          cwd: tool.schema
+            .string()
+            .optional()
+            .describe("Directory to inspect (defaults to project directory)"),
+        },
+        async execute(args, context) {
+          const cwd = resolveCwd(context, (args as any).cwd)
+          const detected = await detectRunCommand(cwd)
+          return JSON.stringify({ cwd, detected }, null, 2)
         },
       }),
 

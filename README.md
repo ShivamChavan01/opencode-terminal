@@ -25,7 +25,8 @@ cp src/index.ts ~/.config/opencode/plugins/terminal.ts
 
 ## Tools
 
-- `open_terminal({ command?, title?, visibleTyping?, typeDelay? })` — Open native window in project dir. macOS: Terminal/iTerm/Ghostty/WezTerm/Kitty/Alacritty. Windows: Windows Terminal (`wt`) → cmd. Linux/WSL: gnome-terminal/konsole/wezterm/alacritty/kitty/ghostty/xterm. `visibleTyping: true` (Linux/X11 via xdotool) visibly types the command keystroke-by-keystroke. Returns a `ref` for closing.
+- `open_terminal({ command?, title?, cwd?, visibleTyping?, typeDelay? })` — Open native window in project dir. If `command` is omitted, auto-detects it (`package.json` dev/start via npm/pnpm/yarn/bun, `mvnw spring-boot:run` / `mn:run`, `gradlew bootRun`/`run`, Django/Flask/FastAPI, `go run .`, `cargo run`, etc). Example: `open_terminal({})` or `open_terminal({ command: "npm run dev", title: "dev-server", visibleTyping: true })`.
+- `terminal_detect({ cwd? })` — Show what `open_terminal` would auto-detect for a directory. Returns `{command, title, reason}`.
 - `close_terminal({ ref?, windowId?, title?, force? })` — Close a native window opened via `open_terminal`. Closing the window stops whatever runs in it (SIGHUP). Refs live only in the session that opened them — after a restart, close by `title`.
 - `terminal_run({ command, cwd?, env?, timeout?, maxOutput? })` — One-shot run. Returns JSON `{ exitCode, timedOut, truncated, stdout, stderr }`. Default timeout 30s.
 - `terminal_start({ command, cwd?, env?, name? })` — Start background session (dev server, watcher, REPL). Returns `{ sessionId, pid, cwd }`.
