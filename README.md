@@ -25,10 +25,14 @@ cp src/index.ts ~/.config/opencode/plugins/terminal.ts
 
 ## Tools
 
-- `open_terminal` — Open a native OS terminal window in the project directory (macOS Terminal, Windows `cmd`, Linux `gnome-terminal` / `konsole` / `xterm` fallback)
-- `terminal_run` — Run a shell command and return stdout/stderr
+- `open_terminal({ command? })` — Open native window in project dir. macOS: Terminal/iTerm/Ghostty/WezTerm/Kitty/Alacritty. Windows: Windows Terminal (`wt`) → cmd. Linux/WSL: gnome-terminal/konsole/wezterm/alacritty/kitty/ghostty/xterm.
+- `terminal_run({ command, cwd?, env?, timeout?, maxOutput? })` — One-shot run. Returns JSON `{ exitCode, timedOut, truncated, stdout, stderr }`. Default timeout 30s.
+- `terminal_start({ command, cwd?, env?, name? })` — Start background session (dev server, watcher, REPL). Returns `{ sessionId, pid, cwd }`.
+- `terminal_log({ sessionId, tail? })` — Poll buffered output.
+- `terminal_send({ sessionId, input, appendNewline? })` — Write to stdin.
+- `terminal_kill({ sessionId })` / `terminal_list()` — Manage sessions.
 
-Also sets `OPENCODE_TERMINAL=1` and `OPENCODE_WORK_DIR` via `shell.env`.
+Also sets `OPENCODE_TERMINAL=1`, `OPENCODE_WORK_DIR`, `TERM=xterm-256color` via `shell.env`.
 
 ## Dev
 
