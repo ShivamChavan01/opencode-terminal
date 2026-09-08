@@ -1,0 +1,25 @@
+{
+  "name": "opencode-terminal",
+  "version": "0.1.0",
+  "description": "Open native OS terminal window + run shell commands for OpenCode",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": ["src"],
+  "keywords": ["opencode", "opencode-plugin", "terminal"],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.14.28",
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
