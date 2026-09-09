@@ -1,6 +1,6 @@
 {
   "name": "opencode-terminal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open native OS terminal window + run shell commands for OpenCode",
   "type": "module",
   "main": "src/index.ts",
@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ShivamChavan01/terminal-.git"
+    "url": "https://github.com/ShivamChavan01/opencode-terminal.git"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
